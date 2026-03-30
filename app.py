@@ -22,11 +22,10 @@ def get_status():
     return h
 
 # --- INTERFACE DESIGN ---
-# Removed background-color from Blocks to fix visibility issues
 with gr.Blocks(css=".gradio-container {background-color: #000;}") as demo:
     gr.HTML(f"""
         <div style="text-align: center; border-bottom: 2px solid #D4AF37; padding-bottom: 20px; margin-bottom: 20px;">
-            <h1 style="color: #D4AF37; font-size: 2.5em; margin-bottom: 0;">GOSPEL PILLARS - ASIA DIVISION</h1>
+            <h1 style="color: #D4AF37; font-size: 2.5em; margin-bottom: 0; font-weight: 900;">GOSPEL PILLARS - ASIA DIVISION</h1>
             <p style="color: white; font-style: italic;">Under the Oversight of Apostle Solomon Success</p>
         </div>
     """)
@@ -43,7 +42,10 @@ with gr.Blocks(css=".gradio-container {background-color: #000;}") as demo:
 
     gr.Button("SIGN IN TO SHIFT (Coming Soon)", variant="primary")
 
-# --- THE FIX FOR HOSTING ---
-# Do NOT use demo.launch() for Vercel/GitHub actions. 
-# Use this instead:
-app = demo
+# --- VERCEL EXPORT ---
+# We use .mount_gradio_app to make it compatible with Vercel's FastAPI backend
+from fastapi import FastAPI
+import gradio as gr
+
+app = FastAPI()
+app = gr.mount_gradio_app(app, demo, path="/")
