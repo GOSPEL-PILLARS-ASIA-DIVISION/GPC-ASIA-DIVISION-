@@ -5,11 +5,11 @@ import os
 import urllib.parse
 from fastapi import FastAPI
 
-# Storage configuration for Vercel (Temporary session storage)
+# Vercel uses /tmp for temporary file storage
 DB_FILE = "/tmp/prayer_data.json"
 ADMIN_PASSWORD = "Admin123" 
 
-# --- ASIA DIVISION PASTOR LIST & SCHEDULE ---
+# --- ASIA DIVISION PASTOR LIST ---
 pastors_list = [
     {"n": "Pst Joey", "s": "10:00 PM - 11:00 PM"},
     {"n": "Pst Moses", "s": "10:00 PM - 11:00 PM"},
@@ -64,7 +64,7 @@ def update_altar(name, vision_text, action):
 
 def manual_signout(name, pwd):
     if pwd != ADMIN_PASSWORD: return render_list(), "❌ Admin Password Required", report_logic()
-    if not name: return render_list(), "⚠️ Select a Pastor first", report_logic()
+    if not name: return render_list(), "⚠️ Select a Pastor", report_logic()
     now_time = datetime.now().strftime("%I:%M %p")
     for p in current_pastors:
         if p["n"] == name and p["st"] == "🔥 Praying":
@@ -79,91 +79,70 @@ def report_logic():
     s_out = [p for p in current_pastors if p['out'] != "--"]
     forgot_out = [p['n'] for p in current_pastors if p['in'] != "--" and p['out'] == "--"]
     total_mins = sum([calculate_duration(p["in"], p["out"]) for p in s_out])
-    note = f"\n⚠️ ALERT: {', '.join(forgot_out)} started but have NOT signed out." if forgot_out else "\n✨ All active pastors signed out correctly."
+    note = f"\n⚠️ ALERT: {', '.join(forgot_out)} did not sign out." if forgot_out else "\n✨ All signed out."
     return (f"PRAYER ALTAR REPORT\n"
-            f"--------------------------\n"
-            f"1. Pastors Signed In: {len(s_in)}\n"
-            f"2. Pastors Signed Out: {len(s_out)}\n"
-            f"3. Total Prayer Hours: {total_mins//60}h {total_mins%60}m\n"
-            f"4. Concluded at: {datetime.now().strftime('%I:%M %p')}\n"
-            f"{note}")
+            f"1. Signed In: {len(s_in)}\n2. Signed Out: {len(s_out)}\n"
+            f"3. Total Time: {total_mins//60}h {total_mins%60}m\n"
+            f"4. Time: {datetime.now().strftime('%I:%M %p')}\n{note}")
 
 def render_list():
     html = ""
     for p in current_pastors:
         color = "#D4AF37" if "Praying" in p["st"] else "#ffffff"
-        duration = f"<br><span style='color:green;'>Time Spent: {p['dur']}</span>" if p['dur'] else ""
         html += f"""<div style="background:{color}; color:#000; padding:10px; margin:5px; border-radius:8px; border:2px solid #D4AF37; display:flex; justify-content:space-between;">
-            <div><b>{p['n']}</b><br><small>{p['s']}</small>{duration}</div>
+            <div><b>{p['n']}</b><br><small>{p['s']}</small></div>
             <div style="text-align:right;"><b>{p['st']}</b><br><small>{p['in']} - {p['out']}</small></div>
         </div>"""
     return html
 
 def admin_view(pwd):
     if pwd != ADMIN_PASSWORD: return "🔒 Access Denied"
-    visions = "### 📜 Prophetic Visions Received:\n"
+    visions = "### 📜 Prophetic Visions:\n"
     for p in current_pastors:
         if p['v']: visions += f"**{p['n']}:** {p['v']}\n\n"
-    return visions or "No visions recorded yet."
+    return visions or "No visions yet."
 
 def reset_app(pwd):
     global current_pastors
     if pwd != ADMIN_PASSWORD: return render_list(), "❌ Incorrect Password", report_logic()
     current_pastors = load_data()
     save_data(current_pastors)
-    return render_list(), "🔄 Data Reset for New Day", report_logic()
+    return render_list(), "🔄 Reset Successful", report_logic()
 
-# --- THE INTERFACE ---
-css_styling = ".gradio-container {background-color: #000 !important; color: #D4AF37 !important;}"
-
-with gr.Blocks(css=css_styling) as demo:
-    gr.HTML("<div style='text-align:center;'><h1>PASTORIA PRAYER TRACKER</h1><p style='color:white;'>Gospel Pillars Ministry International - Asia Division</p></div>")
+# --- THE UI ---
+css = ".gradio-container {background-color: #000 !important; color: #D4AF37 !important;}"
+with gr.Blocks(css=css) as demo:
+    gr.HTML("<div style='text-align:center;'><h1>PASTORIA PRAYER TRACKER</h1></div>")
     
     with gr.Row():
-        with gr.Column(scale=1):
-            gr.Markdown("### 🔥 Live Altar Watch")
+        with gr.Column():
+            gr.Markdown("### 🔥 Altar Watch")
             list_view = gr.HTML(render_list())
-            
-        with gr.Column(scale=1):
-            gr.Markdown("### ✍️ Priestly Sign-In")
-            name_sel = gr.Dropdown([p["n"] for p in pastors_list], label="Select Your Name")
-            vision_box = gr.Textbox(label="Vision / Prophetic Insight", placeholder="Write vision here (Visible only to Admin)")
-            
+        with gr.Column():
+            gr.Markdown("### ✍️ Sign-In")
+            name_sel = gr.Dropdown([p["n"] for p in pastors_list], label="Name")
+            vision_box = gr.Textbox(label="Vision (Admin Only)")
             with gr.Row():
-                btn_in = gr.Button("🔥 START PRAYER", variant="primary")
-                btn_out = gr.Button("✅ FINISH PRAYER")
+                btn_in = gr.Button("🔥 START", variant="primary")
+                btn_out = gr.Button("✅ FINISH")
             
-            with gr.Accordion("🛡️ Admin Command Center", open=False):
-                pass_box = gr.Textbox(label="Enter Admin Password", type="password")
-                
-                gr.Markdown("---")
-                gr.Markdown("#### 🛠️ Manual Correction")
-                admin_target = gr.Dropdown([p["n"] for p in pastors_list], label="Force Sign-Out for:")
-                force_btn = gr.Button("⛔ FORCE SIGN-OUT", variant="secondary")
-                admin_msg = gr.Markdown("")
-                
-                gr.Markdown("---")
-                gr.Markdown("#### 📜 Prophetic Logs")
+            with gr.Accordion("🛡️ Admin", open=False):
+                pass_box = gr.Textbox(label="Password", type="password")
+                admin_target = gr.Dropdown([p["n"] for p in pastors_list], label="Force Sign-Out:")
+                force_btn = gr.Button("⛔ FORCE OUT")
                 vision_log = gr.Markdown("Visions hidden.")
                 view_v_btn = gr.Button("👁️ VIEW VISIONS")
-                
-                gr.Markdown("---")
-                report_box = gr.Textbox(label="Report Summary", value=report_logic(), lines=6)
-                wa_btn = gr.Button("📲 SHARE TO WHATSAPP", variant="primary")
-                reset_btn = gr.Button("🔄 RESET ALL DATA", variant="stop")
+                report_box = gr.Textbox(label="Report", value=report_logic())
+                wa_btn = gr.Button("📲 WHATSAPP", variant="primary")
+                reset_btn = gr.Button("🔄 RESET", variant="stop")
 
-    # App Logic
     btn_in.click(update_altar, [name_sel, vision_box, gr.State("start")], [list_view, report_box])
     btn_out.click(update_altar, [name_sel, vision_box, gr.State("finish")], [list_view, report_box])
-    
-    # Admin Logic
     view_v_btn.click(admin_view, [pass_box], [vision_log])
-    force_btn.click(manual_signout, [admin_target, pass_box], [list_view, admin_msg, report_box])
-    reset_btn.click(reset_app, [pass_box], [list_view, admin_msg, report_box])
-    
-    # WhatsApp (JavaScript Integration)
+    force_btn.click(manual_signout, [admin_target, pass_box], [list_view, report_box])
+    reset_btn.click(reset_app, [pass_box], [list_view, report_box])
     wa_btn.click(fn=None, inputs=report_box, js="(report) => { window.open('https://wa.me/?text=' + encodeURIComponent(report), '_blank'); }")
 
-# --- VERCEL FASTAPI BRIDGE ---
+# --- VERCEL BRIDGE ---
 app = FastAPI()
 app = gr.mount_gradio_app(app, demo, path="/")
