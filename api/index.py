@@ -6,8 +6,10 @@ from fastapi import FastAPI
 from upstash_redis import Redis
 
 # --- DATABASE CONNECTION ---
+# We use .get() to prevent the app from crashing if the database is missing
 REDIS_URL = os.environ.get("UPSTASH_REDIS_REST_URL") or os.environ.get("KV_REST_API_URL")
 REDIS_TOKEN = os.environ.get("UPSTASH_REDIS_REST_TOKEN") or os.environ.get("KV_REST_API_TOKEN")
+
 redis = Redis(url=REDIS_URL, token=REDIS_TOKEN)
 
 ADMIN_PASSWORD = "Admin123" 
@@ -31,16 +33,21 @@ def get_now():
 
 def load_data():
     try:
-        raw = redis.get("altar_v9_nuclear")
+        raw = redis.get("altar_v6_stable")
         if raw: return json.loads(raw)
-    except: pass
+    except Exception as e:
+        print(f"DB Error: {e}")
+    
+    # Fallback to default list
     data = [p.copy() for p in pastors_list]
     for p in data: p.update({"st": "Waiting", "in": "--", "out": "--", "dur": "", "v": ""})
     return data
 
 def save_data(data):
-    try: redis.set("altar_v9_nuclear", json.dumps(data))
-    except: pass
+    try:
+        redis.set("altar_v6_stable", json.dumps(data))
+    except Exception as e:
+        print(f"Save Error: {e}")
 
 def calculate_duration(start_str, end_str):
     fmt = "%I:%M %p"
@@ -57,54 +64,58 @@ def handle_action(name, action_type, vision_text=""):
     if not name: return render_list(), "⚠️ Select Name"
     current_data = load_data()
     now_time = get_now().strftime("%I:%M %p")
+    
     for p in current_data:
         if p["n"] == name:
-            if action_type == "start": p.update({"st": "🔥 PRAYING", "in": now_time, "out": "--", "dur": ""})
+            if action_type == "start":
+                p["st"], p["in"], p["out"], p["dur"] = "🔥 Praying", now_time, "--", ""
             elif action_type == "finish":
                 if p["in"] == "--": continue
-                p.update({"st": "✅ DONE", "out": now_time, "dur": calculate_duration(p["in"], now_time)})
-            elif action_type == "vision": p["v"] = vision_text
+                p["st"], p["out"] = "✅ Done", now_time
+                p["dur"] = calculate_duration(p["in"], now_time)
+            elif action_type == "vision":
+                p["v"] = vision_text
+    
     save_data(current_data)
-    return render_list(), f"Recorded at {now_time}"
+    return render_list(), f"Last Action: {action_type.upper()} at {now_time}"
 
 def render_list():
     current_pastors = load_data()
-    html = "<div style='max-height: 500px; overflow-y: auto; padding: 10px;'>"
+    html = "<div style='max-height: 450px; overflow-y: auto;'>"
     for p in current_pastors:
-        is_praying = "PRAYING" in p["st"]
+        is_praying = "Praying" in p["st"]
+        bg = "#D4AF37" if is_praying else "#1a1a1a"
+        color = "#000" if is_praying else "#D4AF37"
         
-        # WE USE !IMPORTANT TO FORCE THE BROWSER TO OBEY
-        bg = "#D4AF37 !important" if is_praying else "#333333 !important" 
-        txt = "#000000 !important" if is_praying else "#FFFFFF !important"
-        
-        html += f"""<div style="background:{bg}; color:{txt}; padding:15px; margin-bottom:12px; border-radius:10px; border:2px solid #D4AF37 !important; display: block !important;">
-            <div style="display:flex !important; justify-content:space-between !important; align-items:center !important;">
-                <span style="font-size:1.2em !important; font-weight:bold !important; color:{txt};">{p['n']}</span>
-                <span style="font-weight:bold !important; color:{txt};">{p['st']}</span>
+        html += f"""<div style="background:{bg}; color:{color}; padding:15px; margin-bottom:10px; border-radius:12px; border:1px solid #D4AF37;">
+            <div style="display:flex; justify-content:space-between;">
+                <strong>{p['n']}</strong>
+                <span>{p['st']}</span>
             </div>
-            <div style="margin-top:5px !important; font-weight: 500 !important; color:{txt};">
-                Shift: {p['s']} | {p['in']} - {p['out']} {f'({p["dur"]})' if p["dur"] else ''}
+            <div style="font-size:0.85em; margin-top:5px;">
+                Time: {p['in']} - {p['out']} {f'({p["dur"]})' if p["dur"] else ''}
             </div>"""
         if p.get('v'):
-            html += f"<div style='margin-top:10px !important; border-top:1px solid {txt}; padding-top:8px !important; font-style:italic !important; color:{txt};'>📜 Vision: {p['v']}</div>"
+            html += f"<div style='margin-top:8px; border-top:1px dashed #444; padding-top:5px; font-style:italic;'>📜 {p['v']}</div>"
         html += "</div>"
     html += "</div>"
     return html
 
-with gr.Blocks(css=".gradio-container {background-color:#000000 !important;} * {color: #D4AF37 !important;}") as demo:
-    gr.HTML("<div style='text-align:center; padding:10px;'><h1 style='color:#FFFFFF !important; margin:0;'>NIGERIA SPIRITUAL ALTAR</h1></div>")
+# --- UI ---
+with gr.Blocks(css=".gradio-container {background-color:#000; color:#D4AF37;}") as demo:
+    gr.HTML("<h1 style='text-align:center; color:white;'>PASTORIA NIGERIA ALTAR</h1>")
     
     with gr.Row():
         with gr.Column():
             list_view = gr.HTML(render_list())
         with gr.Column():
-            name_sel = gr.Dropdown([p["n"] for p in pastors_list], label="Select Name")
+            name_sel = gr.Dropdown([p["n"] for p in pastors_list], label="Name")
             with gr.Row():
                 btn_in = gr.Button("🔥 START")
                 btn_out = gr.Button("✅ FINISH")
-            vision_box = gr.Textbox(label="Vision", lines=3)
-            btn_v = gr.Button("📤 SEND")
-            status = gr.Markdown("System Online")
+            vision_box = gr.Textbox(label="Vision/Testimony", lines=3)
+            btn_v = gr.Button("📤 SEND VISION")
+            status = gr.Markdown("Ready")
 
     btn_in.click(handle_action, [name_sel, gr.State("start")], [list_view, status])
     btn_out.click(handle_action, [name_sel, gr.State("finish")], [list_view, status])
