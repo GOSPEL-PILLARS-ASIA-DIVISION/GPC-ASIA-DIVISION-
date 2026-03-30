@@ -31,7 +31,7 @@ def get_now():
 
 def load_data():
     try:
-        raw = redis.get("altar_v12_master")
+        raw = redis.get("altar_v15_visible")
         if raw: return json.loads(raw)
     except: pass
     data = [p.copy() for p in pastors_list]
@@ -39,7 +39,7 @@ def load_data():
     return data
 
 def save_data(data):
-    try: redis.set("altar_v12_master", json.dumps(data))
+    try: redis.set("altar_v15_visible", json.dumps(data))
     except: pass
 
 def calculate_duration(start_str, end_str):
@@ -70,8 +70,7 @@ def handle_action(name, action_type, vision_text=""):
 def get_stats():
     data = load_data()
     total_in = sum(1 for p in data if p["in"] != "--")
-    total_done = sum(1 for p in data if p["st"] == "✅ DONE")
-    return f"### 📊 Today's Altar Stats\n**Total Priests Signed In:** {total_in}  |  **Total Prayers Completed:** {total_done}"
+    return f"### 📊 TOTAL PRIESTS ON DUTY: {total_in}"
 
 def render_list():
     current_pastors = load_data()
@@ -80,36 +79,35 @@ def render_list():
         is_praying = "PRAYING" in p["st"]
         bg = "#D4AF37" if is_praying else "#222"
         txt = "#000 !important" if is_praying else "#FFF !important"
-        
-        html += f"""<div style="background:{bg} !important; border: 2px solid #D4AF37; padding:15px; margin-bottom:10px; border-radius:10px; color:{txt}; font-family: sans-serif;">
+        html += f"""<div style="background:{bg} !important; border: 2px solid #D4AF37; padding:15px; margin-bottom:10px; border-radius:10px; color:{txt}; font-family: Arial;">
             <div style="display:flex; justify-content:space-between; align-items:center;">
-                <b style="font-size:1.2em; color:{txt};">{p['n']}</b>
-                <b style="color:{txt}; text-transform: uppercase;">{p['st']}</b>
+                <b style="font-size:1.1em; color:{txt};">{p['n']}</b>
+                <b style="color:{txt};">{p['st']}</b>
             </div>
-            <div style="margin-top:5px; color:{txt}; font-size: 0.9em; opacity: 0.9;">
-                {p['s']} | {p['in']} - {p['out']} {f'({p["dur"]})' if p["dur"] else ''}
-            </div>"""
-        if p.get('v'):
-            html += f"<div style='margin-top:10px; border-top:1px solid {txt}; padding-top:8px; font-style:italic; color:{txt};'>📜 Vision: {p['v']}</div>"
-        html += "</div>"
+            <div style="margin-top:5px; color:{txt}; opacity: 0.8;">{p['in']} - {p['out']} {f'({p["dur"]})' if p["dur"] else ''}</div>
+        </div>"""
     html += "</div>"
     return html
 
 def admin_reset(pwd):
-    if pwd != ADMIN_PASSWORD: return render_list(), "❌ Incorrect Admin Password", get_stats()
+    if pwd != ADMIN_PASSWORD: return render_list(), "❌ Denied", get_stats()
     data = [p.copy() for p in pastors_list]
     for p in data: p.update({"st": "Waiting", "in": "--", "out": "--", "dur": "", "v": ""})
     save_data(data)
-    return render_list(), "🔄 Altar Reset Successful", get_stats()
+    return render_list(), "🔄 Altar Reset", get_stats()
 
-# --- UI DESIGN ---
-with gr.Blocks(css=".gradio-container {background-color:#000 !important;} * {color: #D4AF37 !important;}") as demo:
-    gr.HTML("""
-        <div style='text-align:center; padding:20px; background-color: #111; border-bottom: 3px solid #D4AF37;'>
-            <h1 style='color:white !important; margin:0; font-size: 2.2em; letter-spacing: 2px;'>NIGERIA SPIRITUAL WATCH</h1>
-            <p style='color:#D4AF37 !important; font-weight: bold; margin-top: 5px;'>PASTORIA DAILY PRAYER ALTAR</p>
-        </div>
-    """)
+# --- THE UI DESIGN ---
+# We force the theme to 'dark' to prevent invisible text
+with gr.Blocks(theme=gr.themes.Soft(primary_hue="yellow", neutral_hue="slate"), css=".gradio-container {background-color: #000 !important;} * {color: #D4AF37 !important;}") as demo:
+    
+    # FORCED TITLE SECTION
+    with gr.Box():
+        gr.HTML("""
+            <div style='text-align:center; padding:20px; background-color: #1a1a1a; border: 2px solid #D4AF37; border-radius: 15px;'>
+                <h1 style='color:white !important; margin:0; font-size: 2em;'>NIGERIA SPIRITUAL WATCH</h1>
+                <p style='color:#D4AF37 !important; font-weight: bold;'>PASTORIA DAILY PRAYER ALTAR</p>
+            </div>
+        """)
     
     with gr.Row():
         with gr.Column(scale=1):
@@ -117,20 +115,22 @@ with gr.Blocks(css=".gradio-container {background-color:#000 !important;} * {col
             stats_view = gr.Markdown(get_stats())
             
         with gr.Column(scale=1):
-            name_sel = gr.Dropdown([p["n"] for p in pastors_list], label="Identify Priest")
-            
+            name_sel = gr.Dropdown([p["n"] for p in pastors_list], label="1. Select Name")
             with gr.Row():
                 btn_in = gr.Button("🔥 START PRAYER", variant="primary")
                 btn_out = gr.Button("✅ FINISH PRAYER")
             
-            vision_box = gr.Textbox(label="Vision / Prophetic Word", placeholder="Enter the word received...", lines=3)
+            vision_box = gr.Textbox(label="2. Prophetic Word", placeholder="Write vision here...", lines=2)
             btn_v = gr.Button("📤 SEND VISION")
             
-            status_msg = gr.Markdown("🟢 Status: Connected to Altar")
+            status_msg = gr.Markdown("Status: Ready")
 
-            with gr.Accordion("🛡️ Admin Commands", open=False):
-                pw = gr.Textbox(label="Admin Password", type="password")
-                reset_btn = gr.Button("🔄 RESET ALL DATA FOR NEW DAY", variant="stop")
+            # FORCED ADMIN SECTION
+            with gr.Group():
+                gr.Markdown("### 🛡️ ADMIN CONTROL")
+                with gr.Row():
+                    pw = gr.Textbox(label="Admin Password", type="password", placeholder="***")
+                    reset_btn = gr.Button("RESET DAY", variant="stop")
 
     btn_in.click(handle_action, [name_sel, gr.State("start")], [list_view, status_msg, stats_view])
     btn_out.click(handle_action, [name_sel, gr.State("finish")], [list_view, status_msg, stats_view])
