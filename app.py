@@ -5,11 +5,11 @@ import os
 import urllib.parse
 from fastapi import FastAPI
 
-# File to store data (Vercel /tmp is for temporary session storage)
+# File to store data (Vercel uses /tmp for storage)
 DB_FILE = "/tmp/prayer_data.json"
 ADMIN_PASSWORD = "Admin123" 
 
-# --- PASTORS LIST ---
+# --- UPDATED PRAYER DATA ---
 pastors_list = [
     {"n": "Pst Joey", "s": "10:00 PM - 11:00 PM"},
     {"n": "Pst Moses", "s": "10:00 PM - 11:00 PM"},
@@ -77,18 +77,18 @@ def render():
     for p in current_pastors:
         bg = "#D4AF37" if "Praying" in p["st"] else "#ffffff"
         display_dur = f"<br><b style='color:#1b5e20;'>Duration: {p['dur']}</b>" if p['dur'] else ""
-        h += f"<div style='background:{bg}; color:#000000; padding:12px; margin:8px 0; border-radius:10px; display:flex; justify-content:space-between; border: 2px solid #D4AF37;'>"
-        h += f"<span><b style='font-size:1.1em;'>{p['n']}</b><br><small>{p['s']}</small>{display_dur}</span>"
-        h += f"<span style='text-align:right;'><b>{p['st']}</b><br><small>{p['in']} - {p['out']}</small></span></div>"
+        h += f"<div style='background:{bg}; color:#000000; padding:12px; margin:8px 0; border-radius:10px; display:flex; justify-content:space-between; border: 2px solid #D4AF37; box-shadow: 2px 2px 5px rgba(0,0,0,0.1);'>"
+        h += f"<span><b style='font-size:1.1em; color:#000000;'>{p['n']}</b><br><small style='color:#333;'>{p['s']}</small>{display_dur}</span>"
+        h += f"<span style='text-align:right;'><b style='color:#000000;'>{p['st']}</b><br><small style='color:#333;'>{p['in']} - {p['out']}</small></span></div>"
     return h
 
 def render_admin(pwd):
-    if pwd != ADMIN_PASSWORD:
-        return "<p style='color:gray;'>Enter correct password to see visions.</p>"
-    h = "<div style='background:#111; padding:10px; border-radius:5px;'>"
+    if pwd != ADMIN_PASSWORD: return ""
+    h = "<div style='background:#111; padding:10px; border-radius:5px; margin-top:10px;'>"
+    h += "<h4 style='color:#D4AF37; margin-top:0;'>Vision Log:</h4>"
     for p in current_pastors:
         if p['v']:
-            h += f"<p style='color:#D4AF37;'><b>{p['n']}:</b> <span style='color:white;'>{p['v']}</span></p>"
+            h += f"<p style='color:white; margin:5px 0;'><b>{p['n']}:</b> {p['v']}</p>"
     h += "</div>"
     return h
 
@@ -96,54 +96,67 @@ def report():
     signed_in = len([p for p in current_pastors if p['in'] != "--"])
     signed_out = len([p for p in current_pastors if p['out'] != "--"])
     total_mins = sum([calculate_duration(p["in"], p["out"]) for p in current_pastors if p["out"] != "--"])
-    return (f"Pastoria Prayer Report\n\n"
-            f"1. Pastors Signed In: {signed_in}\n"
-            f"2. Pastors Signed Out: {signed_out}\n"
-            f"3. Total Hours: {total_mins//60}h {total_mins%60}m\n"
-            f"Concluded at: {datetime.now().strftime('%I:%M %p')}")
+    forgot_out = [p['n'] for p in current_pastors if p['in'] != "--" and p['out'] == "--"]
+    note = f"\n\n* Note: {', '.join(forgot_out)} signed into prayers but did not sign out." if forgot_out else ""
+    return (f"Prayers information\n\n"
+            f"1. Numbers of pastors Signed In: {signed_in}\n"
+            f"2. Numbers of pastors Signed Out: {signed_out}\n"
+            f"3. Total Prayer Hours Recorded: {total_mins//60}h {total_mins%60}m\n"
+            f"4. Total Prayer Time Concluded: {datetime.now().strftime('%I:%M %p')}"
+            f"{note}")
 
 def get_whatsapp_link():
-    encoded_text = urllib.parse.quote(report())
+    text = report()
+    encoded_text = urllib.parse.quote(text)
     return f"https://wa.me/?text={encoded_text}"
 
-css_styling = ".gradio-container {background-color: #000 !important; color: #fff !important;}"
+css_styling = """
+.gradio-container {background-color: #000000 !important; color: #ffffff !important;}
+.gr-button {font-weight: bold;}
+"""
 
-with gr.Blocks(css=css_styling) as demo:
+with gr.Blocks() as demo:
     gr.HTML("""
-        <div style="text-align: center; background: #000; color: #D4AF37; padding: 20px; border-radius: 15px; border: 3px solid #D4AF37; margin-bottom: 20px;">
+        <div style="text-align: center; background: #000000; color: #D4AF37; padding: 20px; border-radius: 15px; border: 3px solid #D4AF37; margin-bottom: 20px;">
             <h1 style="margin: 0; font-weight: 900;">PASTORIA DAILY PRAYER</h1>
-            <p style="margin: 5px 0; color: #fff;">GOSPEL PILLARS MINISTRY INTERNATIONAL</p>
-            <p style="color: #D4AF37; font-weight: bold;">ASIA DIVISION HEAD | APOSTLE SOLOMON SUCCESS</p>
+            <p style="margin: 5px 0; color: #ffffff;">GOSPEL PILLARS MINISTRY INTERNATIONAL</p>
+            <p style="color: #D4AF37; font-weight: bold;">ASIA DIVISION HEAD | APOSTEL SOLOMON SUCCESS</p>
         </div>
     """)
     
     with gr.Row():
         with gr.Column():
-            gr.Markdown("### 🔥 Altar Watch List")
+            gr.Markdown("<h3 style='color: #D4AF37;'>Altar Watch List</h3>")
             view = gr.HTML(render())
         
         with gr.Column():
-            gr.Markdown("### ✍️ Priestly Sign-In")
-            name = gr.Dropdown([p["n"] for p in current_pastors], label="Select Pastor")
-            vision_box = gr.Textbox(label="Vision / Comment (Private to Admin)", placeholder="Type your vision here...")
+            gr.Markdown("<h3 style='color: #D4AF37;'>Priestly Sign-In</h3>")
+            name = gr.Dropdown([p["n"] for p in current_pastors], label="Select Name")
+            vision = gr.Textbox(label="Vision / Comment", placeholder="Enter vision here (visible to admin only)...")
             
             with gr.Row():
                 i_btn = gr.Button("🔥 START PRAYER", variant="primary")
                 o_btn = gr.Button("✅ FINISH PRAYER")
             
-            rep = gr.Textbox(label="WhatsApp Report Preview", value=report(), lines=4)
+            rep = gr.Textbox(label="Report Data (Ready for WhatsApp)", value=report(), lines=6)
             
-            with gr.Accordion("🛡️ Admin Controls", open=False):
-                admin_pwd = gr.Textbox(label="Admin Password", type="password")
-                reveal_btn = gr.Button("👁️ VIEW STORED VISIONS")
-                admin_vision_view = gr.HTML(render_admin(""))
+            with gr.Accordion("Admin Controls", open=False):
+                wa_btn = gr.Button("📲 SHARE REPORT TO WHATSAPP", variant="primary")
                 gr.Markdown("---")
-                wa_btn = gr.Button("📲 SEND TO WHATSAPP", variant="primary")
-                reset_btn = gr.Button("🔄 RESET FOR NEW DAY", variant="stop")
+                admin_pwd = gr.Textbox(label="Admin Password", type="password")
+                reveal_btn = gr.Button("👁️ VIEW VISIONS")
+                admin_vision_view = gr.HTML("")
+                reset_btn = gr.Button("🔄 RESET ALL DATA FOR NEW DAY", variant="stop")
             
             wa_link = gr.Markdown(visible=False)
 
-    # Handlers
-    i_btn.click(update, inputs=[name, vision_box, gr.State("in")], outputs=[view, admin_vision_view, rep, wa_link])
-    o_btn.click(update, inputs=[name, vision_box, gr.State("out")], outputs=[view, admin_vision_view, rep, wa_link])
+    # Click Handlers
+    i_btn.click(update, inputs=[name, vision, gr.State("in")], outputs=[view, admin_vision_view, rep, wa_link])
+    o_btn.click(update, inputs=[name, vision, gr.State("out")], outputs=[view, admin_vision_view, rep, wa_link])
     reveal_btn.click(render_admin, inputs=[admin_pwd], outputs=[admin_vision_view])
+    reset_btn.click(reset_all, inputs=[admin_pwd], outputs=[view, admin_vision_view, rep, wa_link])
+    wa_btn.click(fn=lambda: None, js=f"window.open('{get_whatsapp_link()}', '_blank')")
+
+# VERCEL FASTAPI BRIDGE
+app = FastAPI()
+app = gr.mount_gradio_app(app, demo, path="/")
