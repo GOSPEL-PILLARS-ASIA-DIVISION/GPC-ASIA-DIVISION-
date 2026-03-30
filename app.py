@@ -3,9 +3,10 @@ from datetime import datetime
 import json
 import os
 import urllib.parse
+from fastapi import FastAPI
 
-# File to store data permanently
-DB_FILE = "prayer_data.json"
+# Vercel temporary storage
+DB_FILE = "/tmp/prayer_data.json"
 ADMIN_PASSWORD = "Admin123" 
 
 # --- UPDATED PRAYER DATA ---
@@ -99,10 +100,10 @@ def get_whatsapp_link():
     encoded_text = urllib.parse.quote(text)
     return f"https://wa.me/?text={encoded_text}"
 
-# --- NEW VISION FUNCTION ---
+# --- OVERSEER VISION FUNCTION ---
 def overseer_vision(name_typed, pwd):
     if pwd != ADMIN_PASSWORD:
-        return "🔒 Enter Admin Password to activate Overseer Vision."
+        return "🔒 Enter Admin Password below to activate Overseer Vision."
     if not name_typed:
         active = [p['n'] for p in current_pastors if "Praying" in p['st']]
         return f"👁️ OVERSEER WATCH: No one typing. Currently Praying: {', '.join(active) if active else 'None'}"
@@ -113,12 +114,12 @@ css_styling = """
 .gr-button {font-weight: bold;}
 """
 
-with gr.Blocks() as demo:
+with gr.Blocks(css=css_styling) as demo:
     gr.HTML("""
         <div style="text-align: center; background: #000000; color: #D4AF37; padding: 20px; border-radius: 15px; border: 3px solid #D4AF37; margin-bottom: 20px;">
             <h1 style="margin: 0; font-weight: 900;">PASTORIA DAILY PRAYER</h1>
             <p style="margin: 5px 0; color: #ffffff;">GOSPEL PILLARS MINISTRY INTERNATIONAL</p>
-            <p style="color: #D4AF37; font-weight: bold;">ASIA DIVISION HEAD | APOSTEL SOLOMON SUCCESS</p>
+            <p style="color: #D4AF37; font-weight: bold;">ASIA DIVISION HEAD | APOSTLE SOLOMON SUCCESS</p>
         </div>
     """)
     
@@ -138,7 +139,6 @@ with gr.Blocks() as demo:
             rep = gr.Textbox(label="Report Data (Ready for WhatsApp)", value=report(), lines=10)
             
             with gr.Accordion("Admin Controls", open=False):
-                # --- NEW VISION SECTION ---
                 gr.Markdown("### 👁️ Overseer Vision")
                 vision_status = gr.Label(value="Enter Password below to activate Vision")
                 gr.Markdown("---")
@@ -154,10 +154,11 @@ with gr.Blocks() as demo:
     o_btn.click(update, inputs=[name, gr.State("out")], outputs=[view, rep, wa_link])
     reset_btn.click(reset_all, inputs=[admin_pwd], outputs=[view, rep, wa_link])
     
-    # Vision Trigger: Updates when the dropdown is interacted with
+    # Vision Trigger
     name.change(overseer_vision, inputs=[name, admin_pwd], outputs=[vision_status])
     
     wa_btn.click(fn=lambda: None, js=f"window.open('{get_whatsapp_link()}', '_blank')")
 
-if _name_ == "_main_":
-    demo.launch(server_name="0.0.0.0", server_port=7860, css=css_styling)
+# --- VERCEL BRIDGE ---
+app = FastAPI()
+app = gr.mount_gradio_app(app, demo, path="/")
