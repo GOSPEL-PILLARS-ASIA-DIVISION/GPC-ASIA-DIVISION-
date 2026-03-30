@@ -5,10 +5,17 @@ import os
 from fastapi import FastAPI
 from upstash_redis import Redis
 
-# --- DATABASE CONNECTION ---
+# --- DATABASE CONNECTION WITH SAFETY SHIELD ---
 REDIS_URL = os.environ.get("UPSTASH_REDIS_REST_URL")
 REDIS_TOKEN = os.environ.get("UPSTASH_REDIS_REST_TOKEN")
-redis = Redis(url=REDIS_URL, token=REDIS_TOKEN)
+
+# This prevent the 500 Error if variables are missing
+redis = None
+if REDIS_URL and REDIS_TOKEN:
+    try:
+        redis = Redis(url=REDIS_URL, token=REDIS_TOKEN)
+    except:
+        redis = None
 
 ADMIN_PASSWORD = "Admin123" 
 NIGERIA_OFFSET = 1 
@@ -30,17 +37,20 @@ def get_now():
     return datetime.utcnow() + timedelta(hours=NIGERIA_OFFSET)
 
 def load_data():
-    try:
-        raw = redis.get("altar_v15_visible")
-        if raw: return json.loads(raw)
-    except: pass
+    if redis:
+        try:
+            raw = redis.get("altar_v16_final")
+            if raw: return json.loads(raw)
+        except: pass
+    
     data = [p.copy() for p in pastors_list]
     for p in data: p.update({"st": "Waiting", "in": "--", "out": "--", "dur": "", "v": ""})
     return data
 
 def save_data(data):
-    try: redis.set("altar_v15_visible", json.dumps(data))
-    except: pass
+    if redis:
+        try: redis.set("altar_v16_final", json.dumps(data))
+        except: pass
 
 def calculate_duration(start_str, end_str):
     fmt = "%I:%M %p"
@@ -70,72 +80,47 @@ def handle_action(name, action_type, vision_text=""):
 def get_stats():
     data = load_data()
     total_in = sum(1 for p in data if p["in"] != "--")
-    return f"### 📊 TOTAL PRIESTS ON DUTY: {total_in}"
+    return f"### 📊 PRIESTS ACTIVE: {total_in}"
 
 def render_list():
     current_pastors = load_data()
-    html = "<div style='max-height: 500px; overflow-y: auto; padding: 10px; background-color: #000;'>"
+    html = "<div style='max-height: 450px; overflow-y: auto; padding: 10px; background-color: #000;'>"
     for p in current_pastors:
         is_praying = "PRAYING" in p["st"]
         bg = "#D4AF37" if is_praying else "#222"
         txt = "#000 !important" if is_praying else "#FFF !important"
-        html += f"""<div style="background:{bg} !important; border: 2px solid #D4AF37; padding:15px; margin-bottom:10px; border-radius:10px; color:{txt}; font-family: Arial;">
+        html += f"""<div style="background:{bg} !important; border: 1px solid #D4AF37; padding:12px; margin-bottom:8px; border-radius:8px; color:{txt}; font-family: Arial;">
             <div style="display:flex; justify-content:space-between; align-items:center;">
-                <b style="font-size:1.1em; color:{txt};">{p['n']}</b>
+                <b style="color:{txt};">{p['n']}</b>
                 <b style="color:{txt};">{p['st']}</b>
             </div>
-            <div style="margin-top:5px; color:{txt}; opacity: 0.8;">{p['in']} - {p['out']} {f'({p["dur"]})' if p["dur"] else ''}</div>
         </div>"""
     html += "</div>"
     return html
 
-def admin_reset(pwd):
-    if pwd != ADMIN_PASSWORD: return render_list(), "❌ Denied", get_stats()
-    data = [p.copy() for p in pastors_list]
-    for p in data: p.update({"st": "Waiting", "in": "--", "out": "--", "dur": "", "v": ""})
-    save_data(data)
-    return render_list(), "🔄 Altar Reset", get_stats()
-
-# --- THE UI DESIGN ---
-# We force the theme to 'dark' to prevent invisible text
-with gr.Blocks(theme=gr.themes.Soft(primary_hue="yellow", neutral_hue="slate"), css=".gradio-container {background-color: #000 !important;} * {color: #D4AF37 !important;}") as demo:
-    
-    # FORCED TITLE SECTION
-    with gr.Box():
-        gr.HTML("""
-            <div style='text-align:center; padding:20px; background-color: #1a1a1a; border: 2px solid #D4AF37; border-radius: 15px;'>
-                <h1 style='color:white !important; margin:0; font-size: 2em;'>NIGERIA SPIRITUAL WATCH</h1>
-                <p style='color:#D4AF37 !important; font-weight: bold;'>PASTORIA DAILY PRAYER ALTAR</p>
-            </div>
-        """)
+# --- THE UI ---
+with gr.Blocks(css=".gradio-container {background-color: #000 !important;} * {color: #D4AF37 !important;}") as demo:
+    gr.HTML("<div style='text-align:center; border:2px solid #D4AF37; padding:10px; border-radius:10px;'><h1 style='color:white !important;'>NIGERIA SPIRITUAL WATCH</h1><p>PASTORIA DAILY ALTAR</p></div>")
     
     with gr.Row():
-        with gr.Column(scale=1):
+        with gr.Column():
             list_view = gr.HTML(render_list())
             stats_view = gr.Markdown(get_stats())
-            
-        with gr.Column(scale=1):
-            name_sel = gr.Dropdown([p["n"] for p in pastors_list], label="1. Select Name")
+        with gr.Column():
+            name_sel = gr.Dropdown([p["n"] for p in pastors_list], label="Priest Name")
             with gr.Row():
-                btn_in = gr.Button("🔥 START PRAYER", variant="primary")
-                btn_out = gr.Button("✅ FINISH PRAYER")
+                btn_in = gr.Button("🔥 START")
+                btn_out = gr.Button("✅ FINISH")
+            vision_box = gr.Textbox(label="Vision", lines=2)
+            btn_v = gr.Button("📤 SEND")
             
-            vision_box = gr.Textbox(label="2. Prophetic Word", placeholder="Write vision here...", lines=2)
-            btn_v = gr.Button("📤 SEND VISION")
-            
-            status_msg = gr.Markdown("Status: Ready")
+            with gr.Accordion("🛡️ Admin", open=False):
+                pw = gr.Textbox(label="Password", type="password")
+                reset_btn = gr.Button("RESET ALTAR")
 
-            # FORCED ADMIN SECTION
-            with gr.Group():
-                gr.Markdown("### 🛡️ ADMIN CONTROL")
-                with gr.Row():
-                    pw = gr.Textbox(label="Admin Password", type="password", placeholder="***")
-                    reset_btn = gr.Button("RESET DAY", variant="stop")
-
-    btn_in.click(handle_action, [name_sel, gr.State("start")], [list_view, status_msg, stats_view])
-    btn_out.click(handle_action, [name_sel, gr.State("finish")], [list_view, status_msg, stats_view])
-    btn_v.click(handle_action, [name_sel, gr.State("vision"), vision_box], [list_view, status_msg, stats_view])
-    reset_btn.click(admin_reset, [pw], [list_view, status_msg, stats_view])
+    btn_in.click(handle_action, [name_sel, gr.State("start")], [list_view, gr.Markdown(), stats_view])
+    btn_out.click(handle_action, [name_sel, gr.State("finish")], [list_view, gr.Markdown(), stats_view])
+    btn_v.click(handle_action, [name_sel, gr.State("vision"), vision_box], [list_view, gr.Markdown(), stats_view])
 
 app = FastAPI()
 app = gr.mount_gradio_app(app, demo, path="/")
