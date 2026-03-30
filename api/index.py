@@ -31,7 +31,7 @@ def get_now():
 
 def load_data():
     try:
-        raw = redis.get("altar_v8_visible")
+        raw = redis.get("altar_v9_nuclear")
         if raw: return json.loads(raw)
     except: pass
     data = [p.copy() for p in pastors_list]
@@ -39,7 +39,7 @@ def load_data():
     return data
 
 def save_data(data):
-    try: redis.set("altar_v8_visible", json.dumps(data))
+    try: redis.set("altar_v9_nuclear", json.dumps(data))
     except: pass
 
 def calculate_duration(start_str, end_str):
@@ -72,53 +72,43 @@ def render_list():
     html = "<div style='max-height: 500px; overflow-y: auto; padding: 10px;'>"
     for p in current_pastors:
         is_praying = "PRAYING" in p["st"]
-        # High contrast colors: Gold for active, Dark Grey for waiting
-        bg = "#D4AF37" if is_praying else "#2d2d2d" 
-        txt = "#000000" if is_praying else "#FFFFFF" # Black text on gold, White text on grey
         
-        html += f"""<div style="background:{bg}; color:{txt}; padding:15px; margin-bottom:12px; border-radius:10px; border:2px solid #D4AF37;">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-                <b style="font-size:1.2em; text-transform: uppercase;">{p['n']}</b>
-                <b style="font-size:1.0em;">{p['st']}</b>
+        # WE USE !IMPORTANT TO FORCE THE BROWSER TO OBEY
+        bg = "#D4AF37 !important" if is_praying else "#333333 !important" 
+        txt = "#000000 !important" if is_praying else "#FFFFFF !important"
+        
+        html += f"""<div style="background:{bg}; color:{txt}; padding:15px; margin-bottom:12px; border-radius:10px; border:2px solid #D4AF37 !important; display: block !important;">
+            <div style="display:flex !important; justify-content:space-between !important; align-items:center !important;">
+                <span style="font-size:1.2em !important; font-weight:bold !important; color:{txt};">{p['n']}</span>
+                <span style="font-weight:bold !important; color:{txt};">{p['st']}</span>
             </div>
-            <div style="margin-top:5px; font-weight: 500;">
-                Shift: {p['s']} | Time: {p['in']} - {p['out']} {f'({p["dur"]})' if p["dur"] else ''}
+            <div style="margin-top:5px !important; font-weight: 500 !important; color:{txt};">
+                Shift: {p['s']} | {p['in']} - {p['out']} {f'({p["dur"]})' if p["dur"] else ''}
             </div>"""
         if p.get('v'):
-            html += f"<div style='margin-top:10px; border-top:1px solid {txt}; padding-top:8px; font-style:italic;'>📜 Vision: {p['v']}</div>"
+            html += f"<div style='margin-top:10px !important; border-top:1px solid {txt}; padding-top:8px !important; font-style:italic !important; color:{txt};'>📜 Vision: {p['v']}</div>"
         html += "</div>"
     html += "</div>"
     return html
 
-def reset_altar(pwd):
-    if pwd != ADMIN_PASSWORD: return render_list(), "❌ Denied"
-    data = [p.copy() for p in pastors_list]
-    for p in data: p.update({"st": "Waiting", "in": "--", "out": "--", "dur": "", "v": ""})
-    save_data(data)
-    return render_list(), "🔄 Reset Complete"
-
-with gr.Blocks(css=".gradio-container {background-color:#121212;} .primary-btn {background-color:#D4AF37 !important;}") as demo:
-    gr.HTML("<div style='text-align:center; padding:10px;'><h1 style='color:#D4AF37; margin:0;'>NIGERIA SPIRITUAL ALTAR</h1><p style='color:white;'>OFFICIAL PRAYER WATCH</p></div>")
+with gr.Blocks(css=".gradio-container {background-color:#000000 !important;} * {color: #D4AF37 !important;}") as demo:
+    gr.HTML("<div style='text-align:center; padding:10px;'><h1 style='color:#FFFFFF !important; margin:0;'>NIGERIA SPIRITUAL ALTAR</h1></div>")
     
     with gr.Row():
-        with gr.Column(scale=1):
+        with gr.Column():
             list_view = gr.HTML(render_list())
-        with gr.Column(scale=1):
-            name_sel = gr.Dropdown([p["n"] for p in pastors_list], label="Identify Yourself")
+        with gr.Column():
+            name_sel = gr.Dropdown([p["n"] for p in pastors_list], label="Select Name")
             with gr.Row():
-                btn_in = gr.Button("🔥 START PRAYER", variant="primary")
-                btn_out = gr.Button("✅ FINISH PRAYER")
-            vision_box = gr.Textbox(label="Prophetic Vision", placeholder="Write word here...", lines=3)
-            btn_v = gr.Button("📤 SEND VISION")
-            status = gr.Markdown("🟢 System Online")
-            with gr.Accordion("🛡️ Admin", open=False):
-                pw = gr.Textbox(label="Password", type="password")
-                reset_btn = gr.Button("RESET DAY")
+                btn_in = gr.Button("🔥 START")
+                btn_out = gr.Button("✅ FINISH")
+            vision_box = gr.Textbox(label="Vision", lines=3)
+            btn_v = gr.Button("📤 SEND")
+            status = gr.Markdown("System Online")
 
     btn_in.click(handle_action, [name_sel, gr.State("start")], [list_view, status])
     btn_out.click(handle_action, [name_sel, gr.State("finish")], [list_view, status])
     btn_v.click(handle_action, [name_sel, gr.State("vision"), vision_box], [list_view, status])
-    reset_btn.click(reset_altar, [pw], [list_view, status])
 
 app = FastAPI()
 app = gr.mount_gradio_app(app, demo, path="/")
