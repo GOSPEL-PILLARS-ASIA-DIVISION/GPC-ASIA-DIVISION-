@@ -88,9 +88,9 @@ def render_list():
     html = ""
     for p in current_pastors:
         color = "#D4AF37" if "Praying" in p["st"] else "#ffffff"
-        html += f"""<div style="background:{color}; color:#000; padding:10px; margin:5px; border-radius:8px; border:2px solid #D4AF37; display:flex; justify-content:space-between;">
-            <div><b>{p['n']}</b><br><small>{p['s']}</small></div>
-            <div style="text-align:right;"><b>{p['st']}</b><br><small>{p['in']} - {p['out']}</small></div>
+        html += f"""<div style="background:{color}; color:#000; padding:12px; margin:8px; border-radius:10px; border:2px solid #D4AF37; display:flex; justify-content:space-between; align-items:center; font-weight:bold;">
+            <div><span style="font-size:1.1em;">{p['n']}</span><br><small style="font-weight:normal; color:#444;">{p['s']}</small></div>
+            <div style="text-align:right;"><span>{p['st']}</span><br><small style="font-weight:normal; color:#444;">{p['in']} - {p['out']}</small></div>
         </div>"""
     return html
 
@@ -99,7 +99,7 @@ def admin_view(pwd):
     visions = "### 📜 Prophetic Visions:\n"
     for p in current_pastors:
         if p['v']: visions += f"**{p['n']}:** {p['v']}\n\n"
-    return visions or "No visions yet."
+    return visions or "No visions yet recorded."
 
 def reset_app(pwd):
     global current_pastors
@@ -111,37 +111,41 @@ def reset_app(pwd):
 # --- THE UI ---
 css = ".gradio-container {background-color: #000 !important; color: #D4AF37 !important;}"
 with gr.Blocks(css=css) as demo:
-    gr.HTML("<div style='text-align:center; padding:20px;'><h1 style='color:#D4AF37;'>PASTORIA PRAYER TRACKER</h1><p style='color:white;'>Gospel Pillars Asia Division</p></div>")
+    # --- UPDATED HEADER PER YOUR IMAGE ---
+    gr.HTML("""
+    <div style='text-align:center; border: 3px solid #D4AF37; border-radius: 20px; padding: 25px; margin: 15px auto; max-width: 600px; background-color: #000;'>
+        <h1 style='color: white; font-size: 2.2em; margin-bottom: 5px; font-weight: bold;'>PASTORIA DAILY PRAYER</h1>
+        <p style='color: white; font-size: 1.1em; margin: 0; letter-spacing: 1px;'>GOSPEL PILLARS MINISTRY INTERNATIONAL</p>
+        <p style='color: #D4AF37; font-size: 1em; margin-top: 15px; font-weight: bold;'>ASIA DIVISION HEAD | APOSTEL SOLOMON SUCCESS</p>
+    </div>
+    """)
     
     with gr.Row():
         with gr.Column(scale=1):
-            gr.Markdown("### 🔥 Live Altar Watch")
+            gr.Markdown("### **Altar Watch List**")
             list_view = gr.HTML(render_list())
         with gr.Column(scale=1):
-            gr.Markdown("### ✍️ Priestly Sign-In")
+            gr.Markdown("### **Priestly Sign-In**")
             name_sel = gr.Dropdown([p["n"] for p in pastors_list], label="Select Your Name")
-            
-            # --- UPDATED WRITE YOUR VISION LABEL ---
             vision_box = gr.Textbox(label="Write your vision", placeholder="What is the Spirit saying?", lines=3)
-            
             with gr.Row():
                 btn_in = gr.Button("🔥 START PRAYER", variant="primary")
                 btn_out = gr.Button("✅ FINISH PRAYER")
             
-            with gr.Accordion("🛡️ Admin Command Center", open=False):
+            with gr.Accordion("🛡️ Admin Center", open=False):
                 pass_box = gr.Textbox(label="Admin Password", type="password")
-                with gr.Tab("Manual Tools"):
+                with gr.Tab("Tools"):
                     admin_target = gr.Dropdown([p["n"] for p in pastors_list], label="Force Sign-Out For:")
                     force_btn = gr.Button("⛔ FORCE OUT")
-                with gr.Tab("Prophetic Logs"):
-                    vision_log = gr.Markdown("Visions are hidden.")
-                    view_v_btn = gr.Button("👁️ VIEW VISIONS")
-                with gr.Tab("Report & Reset"):
-                    report_box = gr.Textbox(label="Current Report", value=report_logic(), lines=5)
-                    wa_btn = gr.Button("📲 SHARE TO WHATSAPP", variant="primary")
-                    reset_btn = gr.Button("🔄 RESET FOR NEW DAY", variant="stop")
+                with gr.Tab("Visions"):
+                    vision_log = gr.Markdown("Visions are private.")
+                    view_v_btn = gr.Button("👁️ VIEW")
+                with gr.Tab("Report"):
+                    report_box = gr.Textbox(label="Report", value=report_logic(), lines=5)
+                    wa_btn = gr.Button("📲 WHATSAPP", variant="primary")
+                    reset_btn = gr.Button("🔄 RESET DAY", variant="stop")
 
-    # App Actions
+    # Actions
     btn_in.click(update_altar, [name_sel, vision_box, gr.State("start")], [list_view, report_box])
     btn_out.click(update_altar, [name_sel, vision_box, gr.State("finish")], [list_view, report_box])
     view_v_btn.click(admin_view, [pass_box], [vision_log])
@@ -149,6 +153,6 @@ with gr.Blocks(css=css) as demo:
     reset_btn.click(reset_app, [pass_box], [list_view, report_box])
     wa_btn.click(fn=None, inputs=report_box, js="(report) => { window.open('https://wa.me/?text=' + encodeURIComponent(report), '_blank'); }")
 
-# --- VERCEL FASTAPI BRIDGE ---
+# --- VERCEL BRIDGE ---
 app = FastAPI()
 app = gr.mount_gradio_app(app, demo, path="/")
