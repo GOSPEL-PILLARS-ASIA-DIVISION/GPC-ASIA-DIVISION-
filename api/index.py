@@ -4,7 +4,7 @@ import json
 import os
 from fastapi import FastAPI
 
-# Vercel uses /tmp for temporary file storage
+# Vercel uses /tmp for temporary session storage
 DB_FILE = "/tmp/prayer_data.json"
 ADMIN_PASSWORD = "Admin123" 
 
@@ -109,9 +109,9 @@ def reset_app(pwd):
     return render_list(), report_logic()
 
 # --- THE UI ---
-css = ".gradio-container {background-color: #000 !important; color: #D4AF37 !important; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;}"
+css = ".gradio-container {background-color: #000 !important; color: #D4AF37 !important;}"
 with gr.Blocks(css=css) as demo:
-    gr.HTML("<div style='text-align:center; padding:20px;'><h1 style='color:#D4AF37; margin-bottom:0;'>PASTORIA PRAYER TRACKER</h1><p style='color:white;'>Gospel Pillars Asia Division</p></div>")
+    gr.HTML("<div style='text-align:center; padding:20px;'><h1 style='color:#D4AF37;'>PASTORIA PRAYER TRACKER</h1><p style='color:white;'>Gospel Pillars Asia Division</p></div>")
     
     with gr.Row():
         with gr.Column(scale=1):
@@ -120,7 +120,10 @@ with gr.Blocks(css=css) as demo:
         with gr.Column(scale=1):
             gr.Markdown("### ✍️ Priestly Sign-In")
             name_sel = gr.Dropdown([p["n"] for p in pastors_list], label="Select Your Name")
+            
+            # --- UPDATED WRITE YOUR VISION LABEL ---
             vision_box = gr.Textbox(label="Write your vision", placeholder="What is the Spirit saying?", lines=3)
+            
             with gr.Row():
                 btn_in = gr.Button("🔥 START PRAYER", variant="primary")
                 btn_out = gr.Button("✅ FINISH PRAYER")
@@ -131,14 +134,14 @@ with gr.Blocks(css=css) as demo:
                     admin_target = gr.Dropdown([p["n"] for p in pastors_list], label="Force Sign-Out For:")
                     force_btn = gr.Button("⛔ FORCE OUT")
                 with gr.Tab("Prophetic Logs"):
-                    vision_log = gr.Markdown("Visions are hidden for privacy.")
+                    vision_log = gr.Markdown("Visions are hidden.")
                     view_v_btn = gr.Button("👁️ VIEW VISIONS")
                 with gr.Tab("Report & Reset"):
                     report_box = gr.Textbox(label="Current Report", value=report_logic(), lines=5)
                     wa_btn = gr.Button("📲 SHARE TO WHATSAPP", variant="primary")
                     reset_btn = gr.Button("🔄 RESET FOR NEW DAY", variant="stop")
 
-    # Logic
+    # App Actions
     btn_in.click(update_altar, [name_sel, vision_box, gr.State("start")], [list_view, report_box])
     btn_out.click(update_altar, [name_sel, vision_box, gr.State("finish")], [list_view, report_box])
     view_v_btn.click(admin_view, [pass_box], [vision_log])
@@ -146,6 +149,6 @@ with gr.Blocks(css=css) as demo:
     reset_btn.click(reset_app, [pass_box], [list_view, report_box])
     wa_btn.click(fn=None, inputs=report_box, js="(report) => { window.open('https://wa.me/?text=' + encodeURIComponent(report), '_blank'); }")
 
-# --- VERCEL BRIDGE ---
+# --- VERCEL FASTAPI BRIDGE ---
 app = FastAPI()
 app = gr.mount_gradio_app(app, demo, path="/")
