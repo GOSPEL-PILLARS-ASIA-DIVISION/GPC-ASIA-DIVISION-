@@ -6,13 +6,14 @@ from fastapi import FastAPI
 from upstash_redis import Redis
 
 # --- DATABASE CONNECTION ---
-# We use .get() to prevent the app from crashing if the database is missing
-REDIS_URL = os.environ.get("UPSTASH_REDIS_REST_URL") or os.environ.get("KV_REST_API_URL")
-REDIS_TOKEN = os.environ.get("UPSTASH_REDIS_REST_TOKEN") or os.environ.get("KV_REST_API_TOKEN")
-
-redis = Redis(url=REDIS_URL, token=REDIS_TOKEN)
+redis = Redis(
+    url=os.environ.get("UPSTASH_REDIS_REST_URL"), 
+    token=os.environ.get("UPSTASH_REDIS_REST_TOKEN")
+)
 
 ADMIN_PASSWORD = "Admin123" 
+
+# --- NIGERIA TIME OFFSET (UTC+1) ---
 NIGERIA_OFFSET = 1 
 
 pastors_list = [
@@ -28,98 +29,125 @@ pastors_list = [
     {"n": "Pst Godfrey", "s": "06:00 PM - 07:00 PM"}
 ]
 
-def get_now():
+def get_nigeria_time():
+    # Adjusts the Vercel server time to Nigeria Time (WAT)
     return datetime.utcnow() + timedelta(hours=NIGERIA_OFFSET)
 
 def load_data():
     try:
-        raw = redis.get("altar_v6_stable")
+        raw = redis.get("nigeria_altar_final")
         if raw: return json.loads(raw)
-    except Exception as e:
-        print(f"DB Error: {e}")
-    
-    # Fallback to default list
+    except: pass
     data = [p.copy() for p in pastors_list]
     for p in data: p.update({"st": "Waiting", "in": "--", "out": "--", "dur": "", "v": ""})
     return data
 
 def save_data(data):
-    try:
-        redis.set("altar_v6_stable", json.dumps(data))
-    except Exception as e:
-        print(f"Save Error: {e}")
+    redis.set("nigeria_altar_final", json.dumps(data))
 
 def calculate_duration(start_str, end_str):
     fmt = "%I:%M %p"
     try:
         t1 = datetime.strptime(start_str, fmt)
         t2 = datetime.strptime(end_str, fmt)
-        if t2 <= t1: t2 += timedelta(days=1)
+        if t2 < t1: t2 += timedelta(days=1)
         diff = t2 - t1
         mins = int(diff.total_seconds() / 60)
         return f"{mins//60}h {mins%60}m"
-    except: return "0h 0m"
+    except: return ""
 
 def handle_action(name, action_type, vision_text=""):
-    if not name: return render_list(), "⚠️ Select Name"
+    if not name: return render_list(), "⚠️ Select a name first!"
     current_data = load_data()
-    now_time = get_now().strftime("%I:%M %p")
+    now_time = get_nigeria_time().strftime("%I:%M %p")
+    msg = ""
     
     for p in current_data:
         if p["n"] == name:
             if action_type == "start":
                 p["st"], p["in"], p["out"], p["dur"] = "🔥 Praying", now_time, "--", ""
+                msg = f"🙏 {name} started at {now_time} (WAT)"
             elif action_type == "finish":
-                if p["in"] == "--": continue
+                if p["in"] == "--": return render_list(), "⚠️ You must START first!"
                 p["st"], p["out"] = "✅ Done", now_time
                 p["dur"] = calculate_duration(p["in"], now_time)
+                msg = f"🙌 {name} finished! Total: {p['dur']}"
             elif action_type == "vision":
                 p["v"] = vision_text
+                msg = f"✍️ Vision saved for {name}!"
     
     save_data(current_data)
-    return render_list(), f"Last Action: {action_type.upper()} at {now_time}"
+    return render_list(), msg
 
 def render_list():
     current_pastors = load_data()
-    html = "<div style='max-height: 450px; overflow-y: auto;'>"
+    html = "<div style='max-height: 450px; overflow-y: auto; padding: 10px;'>"
     for p in current_pastors:
         is_praying = "Praying" in p["st"]
-        bg = "#D4AF37" if is_praying else "#1a1a1a"
-        color = "#000" if is_praying else "#D4AF37"
+        bg = "linear-gradient(135deg, #D4AF37 0%, #B8860B 100%)" if is_praying else "#1a1a1a"
+        txt = "#000" if is_praying else "#D4AF37"
+        border = "2px solid #fff" if is_praying else "1px solid #333"
         
-        html += f"""<div style="background:{bg}; color:{color}; padding:15px; margin-bottom:10px; border-radius:12px; border:1px solid #D4AF37;">
-            <div style="display:flex; justify-content:space-between;">
-                <strong>{p['n']}</strong>
-                <span>{p['st']}</span>
+        html += f"""<div style="background:{bg}; color:{txt}; padding:15px; margin-bottom:12px; border-radius:15px; border:{border}; display:flex; justify-content:space-between; align-items:center; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
+            <div style="flex:1.5;">
+                <strong style="font-size:1.2em; text-transform: uppercase;">{p['n']}</strong><br>
+                <span style="font-size:0.85em; opacity:0.9;">Shift: {p['s']}</span>
             </div>
-            <div style="font-size:0.85em; margin-top:5px;">
-                Time: {p['in']} - {p['out']} {f'({p["dur"]})' if p["dur"] else ''}
-            </div>"""
-        if p.get('v'):
-            html += f"<div style='margin-top:8px; border-top:1px dashed #444; padding-top:5px; font-style:italic;'>📜 {p['v']}</div>"
-        html += "</div>"
+            <div style="text-align:right; flex:1;">
+                <span style="font-size:1em; font-weight:bold;">{p['st']}</span><br>
+                <small style="font-size:0.8em;">{p['in']} - {p['out']} {f'({p["dur"]})' if p["dur"] else ''}</small>
+            </div>
+        </div>"""
     html += "</div>"
     return html
 
-# --- UI ---
-with gr.Blocks(css=".gradio-container {background-color:#000; color:#D4AF37;}") as demo:
-    gr.HTML("<h1 style='text-align:center; color:white;'>PASTORIA NIGERIA ALTAR</h1>")
+def admin_view(pwd):
+    if pwd != ADMIN_PASSWORD: return "🔒 Access Denied"
+    current_data = load_data()
+    visions = "### 📜 PROPHETIC RECORD (NIGERIA TIME)\n\n"
+    for p in current_data:
+        if p.get('v'): visions += f"**{p['n']}:** {p['v']}\n\n---\n"
+    return visions
+
+# --- UI DESIGN ---
+with gr.Blocks(css=".gradio-container {background-color: #000; color: #D4AF37; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;}") as demo:
+    gr.HTML(f"""
+    <div style='text-align:center; padding: 30px; border-bottom: 3px solid #D4AF37; background: #000;'>
+        <h1 style='color: white; margin:0; font-size: 2.5em; letter-spacing: 2px;'>PASTORIA DAILY ALTAR</h1>
+        <p style='color: #D4AF37; margin:10px; font-weight: bold; font-size: 1.2em;'>NIGERIA / ASIA DIVISION WATCH</p>
+        <p style='color: #888; font-size: 0.9em;'>Current Time: {get_nigeria_time().strftime('%I:%M %p')} WAT</p>
+    </div>
+    """)
     
     with gr.Row():
-        with gr.Column():
+        with gr.Column(scale=1):
+            gr.Markdown("### 🕯️ Altar Status")
             list_view = gr.HTML(render_list())
-        with gr.Column():
-            name_sel = gr.Dropdown([p["n"] for p in pastors_list], label="Name")
+            
+        with gr.Column(scale=1):
+            gr.Markdown("### ⚔️ Spiritual Entry")
+            name_sel = gr.Dropdown([p["n"] for p in pastors_list], label="Choose Name")
+            
             with gr.Row():
-                btn_in = gr.Button("🔥 START")
-                btn_out = gr.Button("✅ FINISH")
-            vision_box = gr.Textbox(label="Vision/Testimony", lines=3)
-            btn_v = gr.Button("📤 SEND VISION")
-            status = gr.Markdown("Ready")
+                btn_in = gr.Button("🔥 START PRAYER", variant="primary")
+                btn_out = gr.Button("✅ FINISH PRAYER")
+            
+            gr.Markdown("---")
+            vision_box = gr.Textbox(label="Prophetic Vision / Word", placeholder="Enter the revelation here...", lines=4)
+            btn_vision = gr.Button("📤 SEND VISION TO ALTAR", variant="secondary")
+            
+            status_msg = gr.Markdown("**Status:** Ready for Intercession")
 
-    btn_in.click(handle_action, [name_sel, gr.State("start")], [list_view, status])
-    btn_out.click(handle_action, [name_sel, gr.State("finish")], [list_view, status])
-    btn_v.click(handle_action, [name_sel, gr.State("vision"), vision_box], [list_view, status])
+            with gr.Accordion("🛡️ Admin Center", open=False):
+                pw = gr.Textbox(label="Admin Password", type="password")
+                v_log = gr.Markdown("Visions are protected.")
+                v_btn = gr.Button("VIEW ALL VISIONS")
+
+    # Button Logic
+    btn_in.click(handle_action, [name_sel, gr.State("start")], [list_view, status_msg])
+    btn_out.click(handle_action, [name_sel, gr.State("finish")], [list_view, status_msg])
+    btn_vision.click(handle_action, [name_sel, gr.State("vision"), vision_box], [list_view, status_msg])
+    v_btn.click(admin_view, [pw], [v_log])
 
 app = FastAPI()
 app = gr.mount_gradio_app(app, demo, path="/")
