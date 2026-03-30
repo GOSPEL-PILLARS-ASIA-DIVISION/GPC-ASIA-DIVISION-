@@ -1,5 +1,4 @@
 import gradio as gr
-from datetime import datetime
 
 # --- ASIA DIVISION SCHEDULE ---
 pastors = [
@@ -22,6 +21,8 @@ def get_status():
     h += "</div>"
     return h
 
+# --- INTERFACE DESIGN ---
+# Removed background-color from Blocks to fix visibility issues
 with gr.Blocks(css=".gradio-container {background-color: #000;}") as demo:
     gr.HTML(f"""
         <div style="text-align: center; border-bottom: 2px solid #D4AF37; padding-bottom: 20px; margin-bottom: 20px;">
@@ -32,7 +33,7 @@ with gr.Blocks(css=".gradio-container {background-color: #000;}") as demo:
     
     with gr.Row():
         with gr.Column():
-            gr.Markdown("### 📜 PROPHETIC STOREHOUSE (Click to Listen)")
+            gr.Markdown("### 📜 PROPHETIC STOREHOUSE")
             gr.Button("🎧 Ministry of the Holy Spirit", link="https://macwealthfreestore.com/music/track/prophet_isaiah_macwealth-hosting_the_presence_of_god-the_ministry_of_the_holy_spirit")
             gr.Button("🎧 Grieve Not the Holy Spirit", link="https://macwealthfreestore.com/music/track/dr_isaiah_macwealth-grieve_not_the_holy_spirit-hearing_the_spirit_part_4-grieve_not_the_holy_spirit")
         
@@ -42,4 +43,7 @@ with gr.Blocks(css=".gradio-container {background-color: #000;}") as demo:
 
     gr.Button("SIGN IN TO SHIFT (Coming Soon)", variant="primary")
 
-demo.launch()
+# --- THE FIX FOR HOSTING ---
+# Do NOT use demo.launch() for Vercel/GitHub actions. 
+# Use this instead:
+app = demo
