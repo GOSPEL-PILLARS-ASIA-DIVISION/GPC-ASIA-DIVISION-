@@ -2,17 +2,18 @@ import gradio as gr
 from datetime import datetime, timedelta
 import json
 import os
+import urllib.parse
 from fastapi import FastAPI
 from upstash_redis import Redis
 
-# --- DATABASE CONNECTION (Using the clean Names) ---
-URL = os.environ.get("REDIS_URL")
-TOKEN = os.environ.get("REDIS_TOKEN")
-redis = Redis(url=URL, token=TOKEN) if URL and TOKEN else None
+# --- DATABASE CONNECTION (Required for GitHub/Vercel Persistence) ---
+REDIS_URL = os.environ.get("REDIS_URL")
+REDIS_TOKEN = os.environ.get("REDIS_TOKEN")
+redis = Redis(url=REDIS_URL, token=REDIS_TOKEN) if REDIS_URL else None
 
 ADMIN_PASSWORD = "Admin123" 
-NIGERIA_OFFSET = 1 
 
+# --- PRAYER DATA ---
 pastors_list = [
     {"n": "Pst Joey", "s": "10:00 PM - 11:00 PM"},
     {"n": "Pst Moses", "s": "10:00 PM - 11:00 PM"},
@@ -26,85 +27,119 @@ pastors_list = [
     {"n": "Pst Godfrey", "s": "06:00 PM - 07:00 PM"}
 ]
 
-def get_now():
-    return (datetime.utcnow() + timedelta(hours=NIGERIA_OFFSET)).strftime("%I:%M %p")
-
-def calculate_hours(start_t, end_t):
-    try:
-        fmt = "%I:%M %p"
-        t1 = datetime.strptime(start_t, fmt)
-        t2 = datetime.strptime(end_t, fmt)
-        if t2 <= t1: t2 += timedelta(days=1)
-        diff = t2 - t1
-        hrs = int(diff.total_seconds() // 3600)
-        mins = int((diff.total_seconds() % 3600) // 60)
-        return f"{hrs}h {mins}m"
-    except: return "0h 0m"
-
-def load_db():
+def load_data():
     if redis:
         try:
-            raw = redis.get("altar_v300_final")
+            raw = redis.get("prayer_altar_db")
             if raw: return json.loads(raw)
         except: pass
-    return [{"n": p["n"], "s": p["s"], "st": "Waiting", "in": "--", "out": "--", "dur": ""} for p in pastors_list]
+    data = [p.copy() for p in pastors_list]
+    for p in data: p.update({"st": "Waiting", "in": "--", "out": "--", "dur": ""})
+    return data
 
-def render():
-    db = load_db()
-    total_active = sum(1 for p in db if p["in"] != "--")
-    
-    html = "<div style='background:#000; padding:10px;'>"
-    for p in db:
-        is_p = "Praying" in p["st"]
-        bg = "#D4AF37" if is_p else "#FFFFFF"
-        html += f"""<div style="background:{bg} !important; border:3px solid #D4AF37; padding:12px; margin-bottom:10px; border-radius:15px; color:#000 !important;">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-                <b style="font-size:1.2em;">{p['n']}</b> 
-                <b style="font-size:1.1em;">{'🔥 ' if is_p else ''}{p['st']}</b>
-            </div>
-            <div style="font-size:0.95em; font-weight:bold;">
-                In: {p['in']} | Out: {p['out']} 
-                <span style="color:#D8000C; margin-left:10px;">{f'⏱ {p["dur"]}' if p["dur"] else ''}</span>
-            </div>
-        </div>"""
-    return html + "</div>", f"## 📊 TOTAL PRIESTS SIGNED IN: {total_active}"
+def save_data(data):
+    if redis:
+        try: redis.set("prayer_altar_db", json.dumps(data))
+        except: pass
 
-def act(name, mode):
-    if not name: return render()[0], "⚠️ Select Name", render()[1]
-    db = load_db()
-    now = get_now()
-    for p in db:
+def calculate_duration(start_t, end_t):
+    fmt = "%I:%M %p"
+    try:
+        t1 = datetime.strptime(start_t, fmt)
+        t2 = datetime.strptime(end_t, fmt)
+        diff = (t2 - t1).total_seconds()
+        if diff < 0: diff += 86400 # Over midnight fix
+        return int(diff / 60)
+    except: return 0
+
+def get_report(current_data):
+    signed_in = len([p for p in current_data if p['in'] != "--"])
+    signed_out = len([p for p in current_data if p['out'] != "--"])
+    total_mins = sum([calculate_duration(p["in"], p["out"]) for p in current_data if p["out"] != "--"])
+    forgot_out = [p['n'] for p in current_data if p['in'] != "--" and p['out'] == "--"]
+    note = f"\n\n* Note: {', '.join(forgot_out)} did not sign out." if forgot_out else ""
+    return (f"Prayers information\n\n"
+            f"1. Pastors Signed In: {signed_in}\n"
+            f"2. Pastors Signed Out: {signed_out}\n"
+            f"3. Total Prayer Hours: {total_mins//60}h {total_mins%60}m\n"
+            f"4. Recorded at: {datetime.now().strftime('%I:%M %p')}"
+            f"{note}")
+
+def update(name, action):
+    current_data = load_data()
+    if not name: return render_html(current_data), get_report(current_data), ""
+    t = datetime.now().strftime("%I:%M %p")
+    for p in current_data:
         if p["n"] == name:
-            if mode == "s":
-                p.update({"st": "Praying", "in": now, "out": "--", "dur": ""})
-            else:
-                p["st"], p["out"] = "✅ Done", now
-                p["dur"] = calculate_hours(p["in"], now)
-    if redis: redis.set("altar_v300_final", json.dumps(db))
-    return render()[0], f"Updated: {now}", render()[1]
+            if action == "in": 
+                p.update({"st": "🔥 Praying", "in": t, "out": "--", "dur": ""})
+            else: 
+                p["st"], p["out"] = "✅ Done", t
+                mins = calculate_duration(p["in"], t)
+                p["dur"] = f"{mins//60}h {mins%60}m"
+    save_data(current_data)
+    rep = get_report(current_data)
+    return render_html(current_data), rep, f"https://wa.me/?text={urllib.parse.quote(rep)}"
 
-with gr.Blocks(css=".gradio-container {background:#000!important;}") as demo:
-    # THE HEADER FROM YOUR IMAGE
-    gr.HTML("""<div style='text-align:center; border:4px solid #D4AF37; padding:20px; border-radius:20px; background:#111;'>
-        <h1 style='color:white !important; margin:0;'>PASTORIA DAILY PRAYER</h1>
-        <p style='color:white !important; margin:5px;'>GOSPEL PILLARS MINISTRY INTERNATIONAL</p>
-        <hr style='border:0; border-top:1px solid #D4AF37; width:60%; margin:10px auto;'>
-        <p style='color:#D4AF37 !important; font-weight:bold; text-transform:uppercase;'>ASIA DIVISION HEAD | APOSTLE SOLOMON SUCCESS</p>
-    </div>""")
+def reset_all(pwd):
+    if pwd != ADMIN_PASSWORD:
+        current_data = load_data()
+        return render_html(current_data), "❌ INCORRECT PASSWORD", ""
+    new_data = [p.copy() for p in pastors_list]
+    for p in new_data: p.update({"st": "Waiting", "in": "--", "out": "--", "dur": ""})
+    save_data(new_data)
+    return render_html(new_data), get_report(new_data), ""
+
+def render_html(current_data):
+    h = ""
+    for p in current_data:
+        bg = "#D4AF37" if "Praying" in p["st"] else "#ffffff"
+        display_dur = f"<br><b style='color:#b71c1c;'>Duration: {p['dur']}</b>" if p['dur'] else ""
+        h += f"<div style='background:{bg}; color:#000000; padding:12px; margin:8px 0; border-radius:10px; display:flex; justify-content:space-between; border: 2px solid #D4AF37;'>"
+        h += f"<span><b style='font-size:1.1em;'>{p['n']}</b><br><small>{p['s']}</small>{display_dur}</span>"
+        h += f"<span style='text-align:right;'><b>{p['st']}</b><br><small>{p['in']} - {p['out']}</small></span></div>"
+    return h
+
+css_styling = """
+.gradio-container {background-color: #000000 !important; color: #ffffff !important;}
+.gr-button {font-weight: bold;}
+"""
+
+with gr.Blocks(css=css_styling) as demo:
+    gr.HTML("""
+        <div style="text-align: center; background: #000000; color: #D4AF37; padding: 20px; border-radius: 15px; border: 3px solid #D4AF37; margin-bottom: 20px;">
+            <h1 style="margin: 0; font-weight: 900; color: white !important;">PASTORIA DAILY PRAYER</h1>
+            <p style="margin: 5px 0; color: #ffffff;">GOSPEL PILLARS MINISTRY INTERNATIONAL</p>
+            <p style="color: #D4AF37; font-weight: bold; text-transform: uppercase;">ASIA DIVISION HEAD | APOSTLE SOLOMON SUCCESS</p>
+        </div>
+    """)
     
     with gr.Row():
         with gr.Column():
-            list_view = gr.HTML(render()[0])
-            stats_view = gr.Markdown(render()[1])
+            gr.Markdown("<h3 style='color: #D4AF37;'>Altar Watch List</h3>")
+            view = gr.HTML(render_html(load_data()))
+        
         with gr.Column():
-            name_sel = gr.Dropdown([p["n"] for p in pastors_list], label="Select Name")
+            gr.Markdown("<h3 style='color: #D4AF37;'>Priestly Sign-In</h3>")
+            name = gr.Dropdown([p["n"] for p in pastors_list], label="Select Name")
+            
             with gr.Row():
-                s_btn = gr.Button("🔥 START", variant="primary")
-                f_btn = gr.Button("✅ FINISH")
-            msg = gr.Markdown("🟢 System Online")
+                i_btn = gr.Button("🔥 START PRAYER", variant="primary")
+                o_btn = gr.Button("✅ FINISH PRAYER")
+            
+            rep = gr.Textbox(label="Report Data", value=get_report(load_data()), lines=8)
+            
+            with gr.Accordion("Admin Controls", open=False):
+                wa_btn = gr.Button("📲 OPEN WHATSAPP LINK", variant="primary")
+                admin_pwd = gr.Textbox(label="Admin Password", type="password")
+                reset_btn = gr.Button("🔄 RESET ALL DATA", variant="stop")
+            
+            wa_link = gr.Markdown(visible=False)
 
-    s_btn.click(act, [name_sel, gr.State("s")], [list_view, msg, stats_view])
-    f_btn.click(act, [name_sel, gr.State("f")], [list_view, msg, stats_view])
+    i_btn.click(update, inputs=[name, gr.State("in")], outputs=[view, rep, wa_link])
+    o_btn.click(update, inputs=[name, gr.State("out")], outputs=[view, rep, wa_link])
+    reset_btn.click(reset_all, inputs=[admin_pwd], outputs=[view, rep, wa_link])
+    wa_btn.click(fn=None, inputs=wa_link, js="(link) => { if(link) window.open(link, '_blank'); }")
 
 app = FastAPI()
 app = gr.mount_gradio_app(app, demo, path="/")
