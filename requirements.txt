@@ -1,5 +1,4 @@
 gradio
 fastapi
-uvicorn
-jinja2
 upstash-redis
+uvicorn
